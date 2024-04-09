@@ -4,10 +4,14 @@ import numpy as np
 import os
 video = './VID_20240405_120134.mp4'
 
+red = (255,0,0)
+green = (0,255,0)
+blue = (0,0,255)
 
 
 def process_image(image):
-
+    vectors = {}
+    edge_stats = []
 
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
@@ -20,25 +24,53 @@ def process_image(image):
     # create mask
     mask = np.zeros_like(edges)
     height, width = mask.shape
+    # {x, y}
+    robot_trajectory = [0, 1]
 
     # draw robot trajectory which is assumed to be normal to the camera sensor
-    cv2.line(image, (int(width/2), height), (int(width/2), 0), (5, 5, 255), 3)
+    cv2.line(image, (int(width/2), height), (int(width/2), 0), red, 3)
 
     # Define ROI (Region of Interest) mask
-    roi_vertices = [(0, height), (0, height*1/4), (width, height*1/4), (width, height)]
+    roi_vertices = [(0, 0), (width, 0), (width, height), (0, height)]
     cv2.fillPoly(mask, np.int32([roi_vertices]), 255)
     masked_edges = cv2.bitwise_and(edges, mask)
 
     # Use Hough Line Transform to detect lines
     lines = cv2.HoughLinesP(masked_edges, 1, np.pi / 180, 50, minLineLength=100, maxLineGap=50)
 
-    # Draw detected lines on original image
-    for line in lines:
-        x1, y1, x2, y2 = line[0]
-        cv2.line(image, (x1, y1), (x2, y2), (0, 255, 0), 3)
 
+    # this is a really complicated line that sorts the edges found by x1
+    # the purpose is to get the edges are that closest to the middle of the image
+    lines = np.array(sorted(lines, key=lambda x: abs(x[0][0] - int(width/2))))[0:10]
+    print(lines)
+    # Draw detected lines on original image
+    for n, line in enumerate(lines):
+        x1, y1, x2, y2 = line[0]
+        line_vector = [x2-x1, y2-y1]
+        line_unit_vector = line_vector/np.linalg.norm(line_vector)
+
+        
+
+        try: 
+            arr = round(abs(np.dot(robot_trajectory, line_unit_vector)), 4)
+            if arr > 0.9:
+                cv2.line(image, (x1,y1),(x2, y2), green, 1)
+                cv2.circle(image, (x1,y1), radius=3, color=red, thickness=3)
+                cv2.circle(image, (x2,y2), radius=3, color=red, thickness=3)
+                cv2.putText(image, str(arr), (x1,y1), 1, 1, red)
+                cv2.putText(image, str(arr), (x2,y2), 1, 1, red)
+                edge_stats.append(arr)
+        except:
+            print("error with dot product")
+
+
+
+        edge_stats.sort()
+
+    print(edge_stats)
+    print(" ")
     # Draw ROI on the image
-    cv2.polylines(image, [np.int32([roi_vertices])], True, (0, 0, 255), 2)
+    cv2.polylines(image, [np.int32([roi_vertices])], True, blue, 2)
 
     return image
 
