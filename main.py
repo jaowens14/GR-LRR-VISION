@@ -1,13 +1,18 @@
 
 import cv2
 import numpy as np
-import os
-video = './VID_20240405_120134.mp4'
+import serial
+
+
+
+#video = './VID_20240405_120134.mp4'
+video = 0
 
 red = (255,0,0)
 green = (0,255,0)
 blue = (0,0,255)
 
+h7 = serial.Serial(port='/dev/ttyACM0', baudrate=115200, timeout=.1) 
 
 def process_image(image):
     vectors = {}
