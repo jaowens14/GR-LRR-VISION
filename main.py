@@ -72,8 +72,8 @@ def process_image(image):
 
         edge_stats.sort()
 
-    print(edge_stats)
-    print(" ")
+    #print(edge_stats)
+    #print(" ")
     # Draw ROI on the image
     cv2.polylines(image, [np.int32([roi_vertices])], True, blue, 2)
 
@@ -100,10 +100,10 @@ def extract_images_from_video(path_in, subsample_rate, debug=False):
         success, image = vidcap.read()
         image = cv2.resize(image, (0, 0), fx = 0.25, fy = 0.25)
         processed_image = process_image(image)
-        cv2.imshow("Frame", processed_image)
-        cv2.waitKey(250)
+        #cv2.imshow("Frame", processed_image)
+        #cv2.waitKey(250)
         frame_count = frame_count + 1
-    
+        h7.write((bytes("left",  'utf-8')))
     vidcap.release()
     return frame_count
 
