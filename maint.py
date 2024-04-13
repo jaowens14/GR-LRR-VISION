@@ -8,26 +8,13 @@ import traceback
 video = './VID_20240405_120134.mp4'
 #video = 0
 
-
-red = (0,0,255)
+red = (255,0,0)
 green = (0,255,0)
-blue = (255,0,0)
-
-
-
-font = cv2.FONT_HERSHEY_SIMPLEX 
-  
-# fontScale 
-fontScale = 1
-  
-# Line thickness of 2 px 
-thickness = 1
+blue = (0,0,255)
 
 #7 = serial.Serial(port='/dev/ttyACM0', baudrate=115200, timeout=.1) 
 
-
-def process_image(image, frame_count):
-    image = cv2.resize(image, (0, 0), fx = 0.25, fy = 0.25)
+def process_image(image):
     vectors = {}
     edge_stats = []
 
@@ -45,36 +32,16 @@ def process_image(image, frame_count):
     # {x, y}
     robot_trajectory = [0, 1]
 
-    limit1_point1 = [0, int(height/5)]
-    limit1_point2 = [width, int(height/5)]
-
-    limit2_point1 = [0, int(4*height/5)]
-    limit2_point2 = [width, int(4*height/5)]
-
-
-    # add limits to image
-    cv2.line(image, limit1_point1, limit1_point2, blue, 2)
-    cv2.putText(image, 'limit1', limit1_point1, font,  
-                   fontScale, blue, thickness, cv2.LINE_AA)
-    
-
-    cv2.line(image, limit2_point1, limit2_point2, blue, 2)
-    cv2.putText(image, 'limit2', limit2_point1, font,  
-                   fontScale, blue, thickness, cv2.LINE_AA)
-
-
-
     # draw robot trajectory which is assumed to be normal to the camera sensor
     cv2.line(image, (int(width/2), height), (int(width/2), 0), red, 3)
 
     # Define ROI (Region of Interest) mask
     roi_vertices = [(0, 0), (width, 0), (width, height), (0, height)]
-    roi_vertices = [limit2_point1, limit2_point2, limit1_point2, limit1_point1]
     cv2.fillPoly(mask, np.int32([roi_vertices]), 255)
     masked_edges = cv2.bitwise_and(edges, mask)
 
     # Use Hough Line Transform to detect lines
-    lines = cv2.HoughLinesP(masked_edges, 1, np.pi / 180, 50, minLineLength=1/5*height, maxLineGap=50)
+    lines = cv2.HoughLinesP(masked_edges, 1, np.pi / 180, 50, minLineLength=100, maxLineGap=50)
 
 
     # this is a really complicated line that sorts the edges found by x1
@@ -87,10 +54,11 @@ def process_image(image, frame_count):
         line_vector = [x2-x1, y2-y1]
         line_unit_vector = line_vector/np.linalg.norm(line_vector)
 
+        
 
         try: 
             arr = round(abs(np.dot(robot_trajectory, line_unit_vector)), 4)
-            if arr > 0.7:
+            if arr > 0.9:
                 cv2.line(image, (x1,y1),(x2, y2), green, 1)
                 cv2.circle(image, (x1,y1), radius=3, color=red, thickness=3)
                 cv2.circle(image, (x2,y2), radius=3, color=red, thickness=3)
@@ -107,12 +75,7 @@ def process_image(image, frame_count):
     print(edge_stats)
     print(" ")
     # Draw ROI on the image
-    cv2.putText(image, 'ROI', (limit1_point1[0], limit1_point1[1]-30), font,  
-                   fontScale, green, thickness, cv2.LINE_AA)
-    cv2.polylines(image, [np.int32([roi_vertices])], True, green, 2)
-
-
-    #cv2.imwrite("./output/frame"+str(frame_count)+".jpg", image)
+    cv2.polylines(image, [np.int32([roi_vertices])], True, blue, 2)
 
     return image
 
@@ -136,12 +99,12 @@ def extract_images_from_video(path_in, subsample_rate, debug=False):
     while success:
         vidcap.set(cv2.CAP_PROP_POS_MSEC, (frame_count*subsample_rate))
         success, image = vidcap.read()
-        
+        image = cv2.resize(image, (0, 0), fx = 0.25, fy = 0.25)
         
             
 
         try:
-            processed_image = process_image(image, frame_count)
+            processed_image = process_image(image)
             cv2.imshow("Frame", processed_image)
             cv2.waitKey(1000)
             frame_count = frame_count + 1
@@ -156,11 +119,47 @@ def extract_images_from_video(path_in, subsample_rate, debug=False):
 
 
 
+def fft(I):
+    rows, cols = I.shape
+    m = cv2.getOptimalDFTSize( rows )
+    n = cv2.getOptimalDFTSize( cols )
+    padded = cv2.copyMakeBorder(I, 0, m - rows, 0, n - cols, cv2.BORDER_CONSTANT, value=[0, 0, 0])
 
-frames = extract_images_from_video(video, 1000, True)
+    planes = [np.float32(padded), np.zeros(padded.shape, np.float32)]
+    complexI = cv2.merge(planes) # Add to the expanded another plane with zeros
 
+    cv2.dft(complexI, complexI) # this way the result may fit in the source matrix
 
-#processed_image = process_image(cv2.imread("frame1.jpg"))
-#cv2.imshow("Frame", processed_image)
-#cv2.moveWindow("Frame", 1000, 0)
-#cv2.waitKey(0)
+    cv2.split(complexI, planes) # planes[0] = Re(DFT(I), planes[1] = Im(DFT(I))
+    cv2.magnitude(planes[0], planes[1], planes[0])# planes[0] = magnitude
+    magI = planes[0]
+
+    matOfOnes = np.ones(magI.shape, dtype=magI.dtype)
+    cv2.add(matOfOnes, magI, magI) # switch to logarithmic scale
+    cv2.log(magI, magI)
+
+    magI_rows, magI_cols = magI.shape
+    # crop the spectrum, if it has an odd number of rows or columns
+    magI = magI[0:(magI_rows & -2), 0:(magI_cols & -2)]
+    cx = int(magI_rows/2)
+    cy = int(magI_cols/2)
+
+    q0 = magI[0:cx, 0:cy] # Top-Left - Create a ROI per quadrant
+    q1 = magI[cx:cx+cx, 0:cy] # Top-Right
+    q2 = magI[0:cx, cy:cy+cy] # Bottom-Left
+    q3 = magI[cx:cx+cx, cy:cy+cy] # Bottom-Right
+
+    tmp = np.copy(q0) # swap quadrants (Top-Left with Bottom-Right)
+    magI[0:cx, 0:cy] = q3
+    magI[cx:cx + cx, cy:cy + cy] = tmp
+
+    tmp = np.copy(q1) # swap quadrant (Top-Right with Bottom-Left)
+    magI[cx:cx + cx, 0:cy] = q2
+    magI[0:cx, cy:cy + cy] = tmp
+
+    cv2.normalize(magI, magI, 0, 1, cv2.NORM_MINMAX) # Transform the matrix with float values into a
+
+    cv2.imshow("Input Image" , I ) # Show the result
+    cv2.imshow("spectrum magnitude", magI)
+
+extract_images_from_video(video, 1000, True)
