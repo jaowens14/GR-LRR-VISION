@@ -219,15 +219,11 @@ int fourierTransform(const std::map<std::string, cv::Mat>& images) {
 
 int main(int argc, char** argv) {
 
-    readFiles(argv[1]);
-
-    getStats(images);
-
-    addOverlay(images);
-
-    saveImages(images);
-
-    fourierTransform(images);
+    //readFiles(argv[1]);
+    //getStats(images);
+    //addOverlay(images);
+    //saveImages(images);
+    //fourierTransform(images);
 
     return 0; 
 }
