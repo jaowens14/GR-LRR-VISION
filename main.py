@@ -72,7 +72,7 @@ def find_vector_intersect(a1, a2, b1, b2):
     return (int(x//z), int(y//z))
 
 def process_image(image, frame_count):
-    image = cv2.resize(image, (0, 0), fx = 0.25, fy = 0.25)
+    image = cv2.resize(image, (0, 0), fx = 1, fy = 1)
 
     right_edges = [[0,0,0,0]]
     left_edges = [[0,0,0,0]]
@@ -161,11 +161,13 @@ def process_image(image, frame_count):
     beam_point = find_vector_intersect(right_edge[0:2], right_edge[2:4], left_edge[0:2], left_edge[2:4])
     left_offset_point =  find_vector_intersect(left_edge[0:2], left_edge[2:4], limit2_point1, limit2_point2)
     right_offset_point = find_vector_intersect(right_edge[0:2], right_edge[2:4], limit2_point1, limit2_point2)
+
+
     l_x = width//2 - left_offset_point[0]
-    r_x = right_offset_point[0] - width//2
-    distance_between_offset_points = abs(r_x - l_x - width//2)
     
-    print(distance_between_offset_points)
+    r_x = right_offset_point[0] - width//2
+
+    distance_between_offset_points = r_x+l_x
     
     left_percent = round((l_x/(distance_between_offset_points)) * 100.0,2)
     right_percent = round((r_x/(distance_between_offset_points)) * 100.0,2)
