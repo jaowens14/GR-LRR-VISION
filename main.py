@@ -210,7 +210,7 @@ def process_image(image, frame_count):
     return image
 
 
-def extract_images_from_video(path_in=0, subsample_rate=1000, debug=False):
+def extract_images_from_video(path_in=0, subsample_rate=1000, debug=False, save_images=False):
     print("Video Capture Started")
     #vidcap = cv2.VideoCapture(path_in)
     vidcap = cv2.VideoCapture(path_in, cv2.CAP_DSHOW)
@@ -239,6 +239,8 @@ def extract_images_from_video(path_in=0, subsample_rate=1000, debug=False):
         try:
             processed_image = process_image(image, frame_count)
             cv2.imshow("Frame", processed_image)
+            if save_images:
+                cv2.imwrite("frame"+str(frame_count), processed_image)
             cv2.waitKey(100)
             frame_count = frame_count + 1
             
