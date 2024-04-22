@@ -1,20 +1,14 @@
 
 import cv2
 import numpy as np
-import serial
 import traceback
-import datetime
-import matplotlib.pyplot as plt
 
 video = './VID_20240405_120134.mp4'
 video = 0
 
-
 red = (0,0,255)
 green = (0,255,0)
 blue = (255,0,0)
-
-
 
 font = cv2.FONT_HERSHEY_SIMPLEX 
   
@@ -24,8 +18,8 @@ fontScale = 1
 # Line thickness of 2 px 
 thickness = 1
 
-#7 = serial.Serial(port='/dev/ttyACM0', baudrate=115200, timeout=.1) 
-
+left_percent = 0
+right_percent = 0
 
 def get_x_vector_midpoint(points):
     '''expects points [(x1, y   1) (x2, y2)]'''
@@ -216,7 +210,8 @@ def process_image(image, frame_count):
     return image
 
 
-def extract_images_from_video(path_in, subsample_rate, debug=False):
+def extract_images_from_video(path_in=0, subsample_rate=1000, debug=False):
+    print("Video Capture Started")
     #vidcap = cv2.VideoCapture(path_in)
     vidcap = cv2.VideoCapture(path_in, cv2.CAP_DSHOW)
 
@@ -256,12 +251,4 @@ def extract_images_from_video(path_in, subsample_rate, debug=False):
     return frame_count
 
 
-
-
-frames = extract_images_from_video(video, 1000, True)
-
-
-#processed_image = process_image(cv2.imread("frame1.jpg"))
-#cv2.imshow("Frame", processed_image)
-#cv2.moveWindow("Frame", 1000, 0)
-#cv2.waitKey(0)
+extract_images_from_video()
