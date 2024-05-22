@@ -4,7 +4,7 @@ import numpy as np
 import traceback
 
 video = './VID_20240405_120134.mp4'
-video = 0
+#video = 0
 
 red = (0,0,255)
 green = (0,255,0)
@@ -65,8 +65,8 @@ def find_vector_intersect(a1, a2, b1, b2):
         return (float('inf'), float('inf'))
     return (int(x//z), int(y//z))
 
-def process_image(image, frame_count):
-    image = cv2.resize(image, (0, 0), fx = 1, fy = 1)
+def process_image(image, frame_count, scale):
+    image = cv2.resize(image, (0, 0), fx = scale, fy = scale)
 
     right_edges = [[0,0,0,0]]
     left_edges = [[0,0,0,0]]
@@ -206,14 +206,17 @@ def process_image(image, frame_count):
 
 
     #cv2.imwrite("./output/frame"+str(frame_count)+".jpg", image)
-
     return image
 
 
 def extract_images_from_video(path_in=0, subsample_rate=1000, debug=False, save_images=False):
     print("Video Capture Started")
-    #vidcap = cv2.VideoCapture(path_in)
-    vidcap = cv2.VideoCapture(path_in, cv2.CAP_DSHOW)
+    if path_in == 0:
+        vidcap = cv2.VideoCapture(path_in, cv2.CAP_DSHOW)
+        scale = 1
+    else:
+        vidcap = cv2.VideoCapture(path_in)
+        scale = 0.25
 
 
     if not vidcap.isOpened():
@@ -232,16 +235,13 @@ def extract_images_from_video(path_in=0, subsample_rate=1000, debug=False, save_
     while success:
         vidcap.set(cv2.CAP_PROP_POS_MSEC, (frame_count*subsample_rate))
         success, image = vidcap.read()
-        
-        
-            
-
+    
         try:
-            processed_image = process_image(image, frame_count)
+            processed_image = process_image(image, frame_count, scale)
             cv2.imshow("Frame", processed_image)
             if save_images:
                 cv2.imwrite("frame"+str(frame_count), processed_image)
-            cv2.waitKey(100)
+            cv2.waitKey(0)
             frame_count = frame_count + 1
             
         except Exception as e:
@@ -253,4 +253,4 @@ def extract_images_from_video(path_in=0, subsample_rate=1000, debug=False, save_
     return frame_count
 
 
-extract_images_from_video()
+extract_images_from_video(path_in=video)
