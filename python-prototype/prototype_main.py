@@ -1,32 +1,41 @@
 
 import cv2
 import numpy as np
+import traceback
 import asyncio
+image_queue = asyncio.Queue(10)
 
-images = asyncio.Queue(10)
-
+video = './VID_20240405_120134.mp4'
+video = 1
 video = './vid.mp4'
 
-# visual constants
 red = (0,0,255)
 green = (0,255,0)
 blue = (255,0,0)
+
 font = cv2.FONT_HERSHEY_SIMPLEX 
+  
+# fontScale 
 fontScale = 1
+  
+# Line thickness of 2 px 
 thickness = 1
 
-
+left_percent = 0
+right_percent = 0
 
 def get_x_vector_midpoint(points):
-    '''expects points [(x1, y1) (x2, y2)]'''
+    '''expects points [(x1, y   1) (x2, y2)]'''
     x1, y1, x2, y2 = points
     midpoint_x = (x1+x2)//2
-    #midpoint_y = (y1+y2)//2
+    midpoint_y = (y1+y2)//2
+
     return midpoint_x
 
 def sort_by_distance_to_center(edges, width):
     # this is a really complicated line that sorts the edges found by x1
     # the purpose is to get the edges are that closest to the middle of the image
+    
     edges = np.array(sorted(edges, key=lambda x: abs(get_x_vector_midpoint(x) - int(width/2))))
 
     return edges
@@ -34,11 +43,11 @@ def sort_by_distance_to_center(edges, width):
 
 def draw_line_with_end_points(image, points, label):
     x1, y1, x2, y2 = points
-    cv2.line(image, (x1,y1),(x2, y2), green, 1)
+    cv2.line(image, (x1,y1),(x2, y2), blue, 1)
     cv2.circle(image, (x1,y1), radius=3, color=red, thickness=3)
     cv2.circle(image, (x2,y2), radius=3, color=red, thickness=3)
-    cv2.putText(image, label + str(points), (x1,x2), font,  
-                   fontScale, blue, thickness, cv2.LINE_AA)
+    #cv2.putText(image, label + str(points), (x1,x2), font,  
+     #              fontScale, blue, thickness, cv2.LINE_AA)
     
 
 def find_vector_intersect(a1, a2, b1, b2):
@@ -65,32 +74,28 @@ def find_vector_intersect(a1, a2, b1, b2):
 #    # y = x+ (m - x) * 0.1
 #    new_left_edge = last_left_edge + (left_edge - last_left_edge) * 0.1
 
-
-
-def resize_image(image, scale = 1):
-    image = cv2.resize(image, (0, 0), fx = scale, fy = scale)
-    return image
-
-
-def gray_image(image):
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    return gray
-
-def blur_image(image):
-    blurred = cv2.GaussianBlur(image, (5, 5), 0)
-    return blurred
-
 def process_image(image, last_image, frame_count, scale):
     try: 
+        image = cv2.resize(image, (0, 0), fx = scale, fy = scale)
 
         right_edges = [[0,0,0,0]]
         left_edges = [[0,0,0,0]]
 
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
         # Apply Gaussian Blur
+        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
 
         # Detect edges using Canny
         edges = cv2.Canny(blurred, 50, 150)
+        # step 1: make a3 channel, bgr or rgb image from the canny output:
+        rgb = cv2.cvtColor(edges, cv2.COLOR_GRAY2RGB) # RGB for matplotlib, BGR for imshow() !
+
+        # step 2: now all edges are white (255,255,255). to make it red, multiply with another array:
+        rgb *= np.array((0,0,1),np.uint8) # set g and b to 0, leaves red :)
+
+        # step 3: compose:
+        out = np.bitwise_or(image, rgb)
 
         # create mask
         mask = np.zeros_like(edges)
@@ -126,16 +131,18 @@ def process_image(image, last_image, frame_count, scale):
         roi_vertices = [limit2_point1, limit2_point2, limit1_point2, limit1_point1]
         cv2.fillPoly(mask, np.int32([roi_vertices]), 255)
         masked_edges = cv2.bitwise_and(edges, mask)
+        
 
         # Use Hough Line Transform to detect lines
-        detected_edges = cv2.HoughLinesP(masked_edges, 1, np.pi / 180, 50, minLineLength=1/5*height, maxLineGap=50)
+        # 
+        detected_edges = cv2.HoughLinesP(image=edges, rho=1, theta=np.pi / 180, threshold=50, minLineLength=1/2*height, maxLineGap=100) 
 
 
         for n, v in enumerate(detected_edges):
             x1, y1, x2, y2 = v[0]
             vector = [x2-x1, y2-y1]
             unit_vector = vector/np.linalg.norm(vector)
-
+            draw_line_with_end_points(out, v[0], str(n))
             try: 
                 slope = round(np.dot(robot_reference_vector, unit_vector), 4)
 
@@ -157,6 +164,7 @@ def process_image(image, last_image, frame_count, scale):
             except:
                 print("error in processing")
                 traceback.print_exc() 
+        raise Exception
 
         right_edge = sort_by_distance_to_center(right_edges, width)[0]
         left_edge = sort_by_distance_to_center(left_edges, width)[0]
@@ -184,9 +192,10 @@ def process_image(image, last_image, frame_count, scale):
         web_trajectory = [limit_reference_point[0]-beam_point[0], limit_reference_point[1]-beam_point[1]]
         print("web")
         print(web_trajectory)
-
         robot_angle = round(np.degrees(np.arccos((np.dot(robot_reference_vector, web_trajectory))/(np.linalg.norm(robot_reference_vector)*np.linalg.norm(web_trajectory)))),2)
-
+        with open("deg.csv","a") as f:
+            f.write(str(robot_angle)+str('\n'))
+            f.close()
         print(left_offset_point)
         print(right_offset_point)
         print(beam_point)
@@ -223,24 +232,36 @@ def process_image(image, last_image, frame_count, scale):
         #cv2.imwrite("./output/frame"+str(frame_count)+".jpg", image)
         return image
     except Exception as e:
-        return gray
+        return out
 
 
+def extract_images_from_video(path_in=0, subsample_rate=100, debug=False, save_images=False):
+    print("Video Capture Started")
+    if path_in == 0:
+        vidcap = cv2.VideoCapture(path_in, cv2.CAP_DSHOW)
+        scale = 1
+    else:
+        vidcap = cv2.VideoCapture(path_in)
+        scale = 1
 
-def start_video_capture(video):
-    vidcap = cv2.VideoCapture(video)
-    return vidcap
 
-def read_images(vidcap):
-    success, image = vidcap.read()
-    images.put(image)
-    return success
+    if not vidcap.isOpened():
+        raise IOError
 
+    if debug:
+        length = int(vidcap.get(cv2.CAP_PROP_FRAME_COUNT))
+        width  = int(vidcap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(vidcap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fps    = vidcap.get(cv2.CAP_PROP_FPS)
+        print ("Length: %.2f | Width: %.2f | Height: %.2f | Fps: %.2f" % (length, width, height, fps))
 
-def process_image(image):
+    
+    success, last_image = vidcap.read() #extract first frame.
+    frame_count = 0
+    while success:
 
-def annotate_image(image):
-        
+        vidcap.set(cv2.CAP_PROP_POS_MSEC, (frame_count*subsample_rate))
+        success, new_image = vidcap.read()
 
         try:
             processed_image = process_image(new_image, last_image, frame_count, scale)
@@ -248,7 +269,7 @@ def annotate_image(image):
             cv2.imshow("Frame", processed_image)
             if save_images:
                 cv2.imwrite("frame"+str(frame_count), processed_image)
-            cv2.waitKey(1000)
+            cv2.waitKey(10)
             frame_count = frame_count + 1
             
         except Exception as e:
