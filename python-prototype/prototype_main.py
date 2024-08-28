@@ -80,7 +80,7 @@ def process_image(image, last_image, frame_count, scale):
 
         right_edges = [[0,0,0,0]]
         left_edges = [[0,0,0,0]]
-
+        
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
         # Apply Gaussian Blur
@@ -96,6 +96,7 @@ def process_image(image, last_image, frame_count, scale):
 
         # step 3: compose:
         out = np.bitwise_or(image, rgb)
+        
 
         # create mask
         mask = np.zeros_like(edges)
@@ -164,6 +165,8 @@ def process_image(image, last_image, frame_count, scale):
             except:
                 print("error in processing")
                 traceback.print_exc() 
+        draw_line_with_end_points(out,[3*width//7,0, width//7,height], "edge")
+
         raise Exception
 
         right_edge = sort_by_distance_to_center(right_edges, width)[0]
@@ -232,6 +235,7 @@ def process_image(image, last_image, frame_count, scale):
         #cv2.imwrite("./output/frame"+str(frame_count)+".jpg", image)
         return image
     except Exception as e:
+        print(e)
         return out
 
 

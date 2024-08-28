@@ -1,263 +1,222 @@
-
 import cv2
 import numpy as np
-import asyncio
 
-images = asyncio.Queue(10)
-
-video = './vid.mp4'
-
-# visual constants
 red = (0,0,255)
 green = (0,255,0)
 blue = (255,0,0)
-font = cv2.FONT_HERSHEY_SIMPLEX 
-fontScale = 1
-thickness = 1
 
 
-
-def get_x_vector_midpoint(points):
-    '''expects points [(x1, y1) (x2, y2)]'''
+def draw_line_with_end_points(image, points):
     x1, y1, x2, y2 = points
-    midpoint_x = (x1+x2)//2
-    #midpoint_y = (y1+y2)//2
-    return midpoint_x
+    cv2.line(image, (x1,y1),(x2, y2), blue, 1)
+    cv2.circle(image, (x1,y1), radius=3, color=red, thickness=3)
+    cv2.circle(image, (x2,y2), radius=3, color=red, thickness=3)
 
-def sort_by_distance_to_center(edges, width):
-    # this is a really complicated line that sorts the edges found by x1
-    # the purpose is to get the edges are that closest to the middle of the image
-    edges = np.array(sorted(edges, key=lambda x: abs(get_x_vector_midpoint(x) - int(width/2))))
+
+
+def get_edges(roi_image):
+    # h = 768/256 = 3
+    h, w = roi_image.shape
+    section_width = 2 ** 7
+    final_image = np.zeros_like(roi_image) # create zeros mat to add up in the end
+    for y in range(0, h, section_width):
+        y1 = y
+        y2 = y+section_width
+        x1 = 0
+        x2 = w
+
+        roi_vertices = [(0,   y),
+                        (w,   y),
+                        (w,   y+section_width),
+                        (0,   y+section_width), 
+                        ]
+
+        empty_array = np.zeros_like(roi_image) # full size
+
+        section_mask = cv2.fillPoly(empty_array, np.int32([roi_vertices]), 255) # draw section on empty
+
+        roi = cv2.bitwise_and(roi_image, section_mask) # get the section from the original image # full
+
+        _ , bin = cv2.threshold(roi, 0, 255, cv2.THRESH_BINARY)
+        contours, _ = cv2.findContours(bin, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if contours:
+            # Get the largest contour (ROI)
+            contour = max(contours, key=cv2.contourArea)
+
+            # Or, get the polygon approximation of the contour (for more accurate vertices)
+            epsilon = 0.01 * cv2.arcLength(contour, True)
+            approx_verts = cv2.approxPolyDP(contour, epsilon, True)
+            polygon_vertices = approx_verts.reshape(-1, 2)  # Flatten to get (x, y) pairs
+
+
+
+        #final_image = cv2.add(final_image, roi)
+
+
+        return roi
+
+
+
+
+
+
+
+def get_image(vidcap):
+    return vidcap.read()
+
+def make_gray_image(image):
+    return cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+def define_vertices(image):
+    offset = 2
+    vertices = []
+    offset_vertices = []
+    h, w = image.shape
+    u = w//8 # 128 # section unit width
+    sh = 2 ** 7 # section height
+    # define vertices
+    for y in range(0, h, sh): 
+        y1 = y
+        y2 = y+sh
+
+        x1 = (3 * u) - y1 // 2
+        x2 = (5 * u) + y1 // 2
+
+        x3 = (3 * u) - y2 // 2
+        x4 = (5 * u) + y2 // 2
+
+        roi_vertices = [(x1,   y1), (x2,   y1), (x4,   y2), (x3,   y2),]
+        
+        offset_roi_vertices = [(x1+offset,   y1+offset), (x2-offset,   y1+1), (x4-offset,   y2-offset), (x3+offset,   y2-offset),]
+
+        vertices.append(roi_vertices)
+        offset_vertices.append(offset_roi_vertices)
+    return vertices, offset_vertices
+
+
+def image_to_sections(image, vertices):
+
+    sections = []
+
+    for vertex in vertices:
+        mask = np.zeros_like(image) # create a empty matrix
+
+        cv2.fillPoly(mask, np.int32([vertex]), 255) # draw roi on empty
+
+        roi = cv2.bitwise_and(image, mask) # union with input image and mask
+
+        sections.append(roi)
+
+    return sections
+
+
+
+def detect_edges_in_section(section, vertex):
+    h, w = section.shape
+    print
+    offset_mask = np.zeros_like(section) # create a empty matrix
+    blurred = cv2.GaussianBlur(section, (5, 5), 0) # blur the section
+    edges = cv2.Canny(blurred, 50, 150) # detect edges
+
+    cv2.fillPoly(offset_mask, np.int32([vertex]), 255) # draw offset roi on mask
+
+    roi = cv2.bitwise_and(edges, offset_mask) # union with offset mask
+    
+    # detect lines in the real roi
+    detected_edges = cv2.HoughLinesP(image=roi, rho=1, theta=np.pi / 180, threshold=25, minLineLength=20, maxLineGap=10) 
+
+    # can return none, check for this in the next step
+    return detected_edges if detected_edges is not None else [[[0,0,0,0]]]
+
+
+def gather_all_edges(sections, offsets):
+    # this is a vstack of a list of results. 
+    # each result is the return from the detect edges function 
+    # which was passed the image section and the offsets
+    return np.vstack([detect_edges_in_section(section, offsets[i]) for i, section in enumerate(sections)])
+
+def append_slope_to_edge(edges):
+    # get the vectors
+    x1 = edges[:, :, 0]
+    y1 = edges[:, :, 1]
+    x2 = edges[:, :, 2]
+    y2 = edges[:, :, 3]
+
+    v = np.hstack([x2-x1, y2-y1])
+
+    unit_vectors = (v.T / np.linalg.norm(v, axis=1)).T # haad to rework this for vector math
+
+    slopes = unit_vectors[:,1] / unit_vectors[:,0]
 
     return edges
 
 
-def draw_line_with_end_points(image, points, label):
-    x1, y1, x2, y2 = points
-    cv2.line(image, (x1,y1),(x2, y2), green, 1)
-    cv2.circle(image, (x1,y1), radius=3, color=red, thickness=3)
-    cv2.circle(image, (x2,y2), radius=3, color=red, thickness=3)
-    cv2.putText(image, label + str(points), (x1,x2), font,  
-                   fontScale, blue, thickness, cv2.LINE_AA)
-    
-
-def find_vector_intersect(a1, a2, b1, b2):
-    """ 
-    Returns the point of intersection of the lines passing through a2,a1 and b2,b1.
-    a1: [x, y] a point on the first line
-    a2: [x, y] another point on the first line
-    b1: [x, y] a point on the second line
-    b2: [x, y] another point on the second line
-    """
-    print(a1, a2, b1, b2)
-    s = np.vstack([a1,a2,b1,b2])        # s for stacked
-    h = np.hstack((s, np.ones((4, 1)))) # h for homogeneous
-    l1 = np.cross(h[0], h[1])           # get first line
-    l2 = np.cross(h[2], h[3])           # get second line
-    x, y, z = np.cross(l1, l2)          # point of intersection
-    if z == 0:                          # lines are parallel
-        return (float('inf'), float('inf'))
-    return (int(x//z), int(y//z))
+def sort_edges_by_slope(edges):
+    left_edges = []
+    right_edges = []
+    robot_reference_vector = [0, 1]
+    for n, v in enumerate(edges):
+        x1, y1, x2, y2 = v[0]
+        vector = [x2-x1, y2-y1]
+        unit_vector = vector/np.linalg.norm(vector)
+        slope = round(np.dot(robot_reference_vector, unit_vector), 4)
+        # if the slope is positive its probably a right edge
+        if slope > 0: 
+            right_edges.append(v[0])
+        elif slope < 0:
+            left_edges.append(v[0])
+    return left_edges, right_edges
 
 
-#def low_pass_filter(left_edge, right_edge):
-#    # following the pattern: new_value = current_value + (new_measurement - current_value) * gain
-#    # y = x+ (m - x) * 0.1
-#    new_left_edge = last_left_edge + (left_edge - last_left_edge) * 0.1
+def main():
+    video_path = "vid.mp4"
+    subsample_rate=100
+    vidcap = cv2.VideoCapture(video_path)
 
+    success, image = vidcap.read() #extract first frame.
+    frame_count = 0
+    while success:
 
+        vidcap.set(cv2.CAP_PROP_POS_MSEC, (frame_count*subsample_rate))
+        
+        success, initial_image = get_image(vidcap)
 
-def resize_image(image, scale = 1):
-    image = cv2.resize(image, (0, 0), fx = scale, fy = scale)
-    return image
+        gray_image = make_gray_image(initial_image)
 
+        vertices, offsets = define_vertices(gray_image)
 
-def gray_image(image):
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    return gray
+        sections = image_to_sections(gray_image, vertices)
 
-def blur_image(image):
-    blurred = cv2.GaussianBlur(image, (5, 5), 0)
-    return blurred
+        all_edges = gather_all_edges(sections, offsets)
 
-def process_image(image, last_image, frame_count, scale):
-    try: 
+        left_edges, right_edges = sort_edges_by_slope(all_edges)
 
-        right_edges = [[0,0,0,0]]
-        left_edges = [[0,0,0,0]]
+        all_edges = append_slope_to_edge(all_edges)
 
-
-        # Apply Gaussian Blur
-
-        # Detect edges using Canny
-        edges = cv2.Canny(blurred, 50, 150)
-
-        # create mask
-        mask = np.zeros_like(edges)
-        height, width = mask.shape
-        # {x, y}
-        robot_reference_vector = [0, 1]
-
-        limit1_point1 = [0, int(height/5)]
-        limit1_point2 = [width, int(height/5)]
-
-        limit2_point1 = [0, int(4*height/5)]
-        limit2_point2 = [width, int(4*height//5)]
-
-        limit_reference_point = [width//2, 4*height//5]
-
-        # add limits to image
-        cv2.line(image, limit1_point1, limit1_point2, blue, 2)
-        cv2.putText(image, 'limit1', limit1_point1, font,  
-                       fontScale, blue, thickness, cv2.LINE_AA)
-
-
-        cv2.line(image, limit2_point1, limit2_point2, blue, 2)
-        cv2.putText(image, 'limit2', limit2_point1, font,  
-                       fontScale, blue, thickness, cv2.LINE_AA)
-
-
-
-        # draw robot trajectory which is assumed to be normal to the camera sensor
-        cv2.line(image, (int(width/2), height), (int(width/2), 0), red, 3)
-
-        # Define ROI (Region of Interest) mask
-        roi_vertices = [(0, 0), (width, 0), (width, height), (0, height)]
-        roi_vertices = [limit2_point1, limit2_point2, limit1_point2, limit1_point1]
-        cv2.fillPoly(mask, np.int32([roi_vertices]), 255)
-        masked_edges = cv2.bitwise_and(edges, mask)
-
-        # Use Hough Line Transform to detect lines
-        detected_edges = cv2.HoughLinesP(masked_edges, 1, np.pi / 180, 50, minLineLength=1/5*height, maxLineGap=50)
-
-
-        for n, v in enumerate(detected_edges):
-            x1, y1, x2, y2 = v[0]
-            vector = [x2-x1, y2-y1]
-            unit_vector = vector/np.linalg.norm(vector)
-
-            try: 
-                slope = round(np.dot(robot_reference_vector, unit_vector), 4)
-
-                # if the slope is positive its probably a right edge
-                if slope > 0: 
-                    right_edges.append(v[0])
-
-                elif slope == 0:
-                    print("slope is zero")
-
-                # else assume it is a left edge
-                else:
-                    left_edges.append(v[0])
-
-
-                #cv2.putText(image, str(slope), (x1,y1), 1, 1, red)
-                #cv2.putText(image, str(x1), (x1,y1), 1, 1, red)
-                #cv2.putText(image, str(x2), (x2,y2), 1, 1, red)
-            except:
-                print("error in processing")
-                traceback.print_exc() 
-
-        right_edge = sort_by_distance_to_center(right_edges, width)[0]
-        left_edge = sort_by_distance_to_center(left_edges, width)[0]
-
-        #y = x+ (m - x) * 0.1
-
-        draw_line_with_end_points(image, right_edge, "right edge")
-        draw_line_with_end_points(image, left_edge, "left edge")
-        # find the intersection
-
-        beam_point = find_vector_intersect(right_edge[0:2], right_edge[2:4], left_edge[0:2], left_edge[2:4])
-        left_offset_point =  find_vector_intersect(left_edge[0:2], left_edge[2:4], limit2_point1, limit2_point2)
-        right_offset_point = find_vector_intersect(right_edge[0:2], right_edge[2:4], limit2_point1, limit2_point2)
-
-
-        l_x = width//2 - left_offset_point[0]
-
-        r_x = right_offset_point[0] - width//2
-
-        distance_between_offset_points = r_x+l_x
-
-        left_percent = round((l_x/(distance_between_offset_points)) * 100.0,2)
-        right_percent = round((r_x/(distance_between_offset_points)) * 100.0,2)
-
-        web_trajectory = [limit_reference_point[0]-beam_point[0], limit_reference_point[1]-beam_point[1]]
-        print("web")
-        print(web_trajectory)
-
-        robot_angle = round(np.degrees(np.arccos((np.dot(robot_reference_vector, web_trajectory))/(np.linalg.norm(robot_reference_vector)*np.linalg.norm(web_trajectory)))),2)
-
-        print(left_offset_point)
-        print(right_offset_point)
-        print(beam_point)
-        cv2.circle(image, (beam_point), radius=3, color=red, thickness=3)
-        cv2.putText(image, 'beam point', beam_point, font,  
-                       fontScale, blue, thickness, cv2.LINE_AA)
-
-        cv2.putText(image, str(robot_angle)+' deg', limit_reference_point, font,  
-                       fontScale, blue, thickness, cv2.LINE_AA)
-
-        cv2.circle(image, (left_offset_point), radius=3, color=red, thickness=3)
-        cv2.circle(image, (right_offset_point), radius=3, color=red, thickness=3)
-
-        cv2.putText(image, 'left % right %', (20,height-60), font,  
-                       fontScale, blue, thickness, cv2.LINE_AA)
-        cv2.putText(image, str(left_percent)+' '+str(right_percent), (20,height-20), font,  
-                       fontScale, blue, thickness, cv2.LINE_AA)
-
-
-
-        cv2.line(image, limit_reference_point, beam_point, blue, 2)
-
-
-        print("right edge")
-        print(right_edge)
-        print("left edge")
-        print(left_edge)
-        # Draw ROI on the image
-        cv2.putText(image, 'ROI', (limit1_point1[0], limit1_point1[1]-30), font,  
-                       fontScale, green, thickness, cv2.LINE_AA)
-        cv2.polylines(image, [np.int32([roi_vertices])], True, green, 2)
-
-
-        #cv2.imwrite("./output/frame"+str(frame_count)+".jpg", image)
-        return image
-    except Exception as e:
-        return gray
-
-
-
-def start_video_capture(video):
-    vidcap = cv2.VideoCapture(video)
-    return vidcap
-
-def read_images(vidcap):
-    success, image = vidcap.read()
-    images.put(image)
-    return success
-
-
-def process_image(image):
-
-def annotate_image(image):
+        # gather all the edges
+        
         
 
-        try:
-            processed_image = process_image(new_image, last_image, frame_count, scale)
-            last_image = new_image
-            cv2.imshow("Frame", processed_image)
-            if save_images:
-                cv2.imwrite("frame"+str(frame_count), processed_image)
-            cv2.waitKey(1000)
-            frame_count = frame_count + 1
-            
-        except Exception as e:
-            print(e)
-            print(traceback.format_exc())
-
+        for n, v in enumerate(all_edges):
+            draw_line_with_end_points(initial_image, v[0])
+        cv2.imshow("processed_section", initial_image)
+        cv2.waitKey(10)
     
+
+        #roi_image = apply_roi(gray_image)
+        #cv2.imshow("roi", roi_image)
+        #edges_image = get_edges(roi_image)
+        #cv2.imshow("edges_image", edges_image)
+        
+
+
+        frame_count += 1
+
     vidcap.release()
     return frame_count
 
 
-extract_images_from_video(path_in=video)
+
+
+if __name__ == "__main__":
+    main()
