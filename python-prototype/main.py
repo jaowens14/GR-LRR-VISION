@@ -5,6 +5,7 @@ red = (0,0,255)
 green = (0,255,0)
 blue = (255,0,0)
 
+headings = []
 
 def draw_line_with_end_points(image, points, color):
     x1, y1, x2, y2 = points
@@ -240,7 +241,7 @@ def find_vector_intersect(a1, a2, b1, b2):
     print(int(x//z), int(y//z))
     if z == 0:                          # lines are parallel
         return [512, 0, 512, 768]       # return default
-    return [int(x//z), int(y//z), 512, 768]
+    return int(x//z), int(y//z), 512, 768
 
 
 
@@ -290,13 +291,18 @@ def main():
             draw_line_with_end_points(initial_image, v[0], red)
 
 
-        for i in range(min(len(left_edges), len(right_edges))):
-            vector = find_vector_intersect(right_edges[i, :, 0:2], right_edges[i, :, 2:4], left_edges[i, :, 0:2], left_edges[i, :, 2:4])
-            draw_line_with_end_points(initial_image, [w//2, h, w//2, 0], green)
+        with open("headings.txt", "a") as headings:
 
-            draw_line_with_end_points(initial_image, vector, blue)
-            print(vector)
-            print(vector[0:2])
+            for i in range(min(len(left_edges), len(right_edges))):
+                vector = find_vector_intersect(right_edges[i, :, 0:2], right_edges[i, :, 2:4], left_edges[i, :, 0:2], left_edges[i, :, 2:4])
+                draw_line_with_end_points(initial_image, vector, blue)
+
+                headings.write(str(vector).replace('(','').replace(')','')+"\n")
+        headings.close()
+            #draw_line_with_end_points(initial_image, [w//2, h, w//2, 0], green)
+            #draw_line_with_end_points(initial_image, vector, blue)
+            #print(vector)
+            #print(vector[0:2])
 
         #    points.append(vector[0:2])
         #    print("mean")
