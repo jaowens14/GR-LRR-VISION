@@ -5,7 +5,7 @@ red = (0,0,255)
 green = (0,255,0)
 blue = (255,0,0)
 
-headings = []
+last_robot_angles = []
 
 def draw_line_with_end_points(image, points, color):
     x1, y1, x2, y2 = points
@@ -202,9 +202,9 @@ def filter_edges_by_slope(left_edges, right_edges):
 def check_fit(xs, ys):
     xs = np.reshape(xs, (xs.shape[0],))
     ys = np.reshape(ys, (ys.shape[0],))
-    print(xs.shape)
+    #print(xs.shape)
     coefficients, err, _, _,_ = np.polyfit(xs, ys, deg=1, full=True) # highest power first
-    print("coef", coefficients)
+    #print("coef", coefficients)
     y = np.polyval(coefficients, xs)
     return np.abs(y-ys)
 
@@ -232,13 +232,13 @@ def find_vector_intersect(a1, a2, b1, b2):
     b2: [x, y] another point on the second line
     """
 
-    print(a1, a2, b1, b2)
+    #print(a1, a2, b1, b2)
     s = np.vstack([a1,a2,b1,b2])        # s for stacked
     h = np.hstack((s, np.ones((4, 1)))) # h for homogeneous
     l1 = np.cross(h[0], h[1])           # get first line
     l2 = np.cross(h[2], h[3])           # get second line
     x, y, z = np.cross(l1, l2)          # point of intersection
-    print(int(x//z), int(y//z))
+    #print(int(x//z), int(y//z))
     if z == 0:                          # lines are parallel
         return [512, 0, 512, 768]       # return default
     return int(x//z), int(y//z), 512, 768
@@ -257,7 +257,16 @@ def remove_null_edges(all_edges):
     return all_edges[~np.all(all_edges == 0, axis=(1, 2))] # this removes any zero edges
 
 
+def estimate_robot_angle(vector):
+    #robot_reference_vector = [512, 0, 512, 768]       # return default
+    robot_reference_vector = [512-512, 768-0]
+    web_vector = [vector[2] - vector[0], vector[3] - vector[1]]
+    # atan2(w2​v1​−w1​v2​,w1​v1​+w2​v2​)
+    return round(np.degrees(np.arctan2(robot_reference_vector[0]*web_vector[1] - robot_reference_vector[1]*web_vector[0], np.dot(robot_reference_vector, web_vector))), 2)
+    
+ 
 def main():
+    last_robot_angles = []
     video_path = "vid.mp4"
     subsample_rate=100
     vidcap = cv2.VideoCapture(video_path)
@@ -284,6 +293,7 @@ def main():
 
         left_edges, right_edges = split_edges_into_left_and_right(all_edges, gray_image)
         left_edges, right_edges = filter_edges_by_mean_x(left_edges, right_edges)
+        
         for n, v in enumerate(left_edges):
             draw_line_with_end_points(initial_image, v[0], green)
 
@@ -291,47 +301,32 @@ def main():
             draw_line_with_end_points(initial_image, v[0], red)
 
 
-        with open("headings.txt", "a") as headings:
-
-            for i in range(min(len(left_edges), len(right_edges))):
-                vector = find_vector_intersect(right_edges[i, :, 0:2], right_edges[i, :, 2:4], left_edges[i, :, 0:2], left_edges[i, :, 2:4])
-                draw_line_with_end_points(initial_image, vector, blue)
-
-                headings.write(str(vector).replace('(','').replace(')','')+"\n")
-        headings.close()
-            #draw_line_with_end_points(initial_image, [w//2, h, w//2, 0], green)
-            #draw_line_with_end_points(initial_image, vector, blue)
-            #print(vector)
-            #print(vector[0:2])
-
-        #    points.append(vector[0:2])
-        #    print("mean")
-        #    print(points)
-        #print(np.mean(points, axis = 0))
-        ## web_trajectory = update_web_trajectory(cleaned_edges)
-# 
-        # robot_angle = estimate_robot_angle(web_trajectory)
-# 
-        # robot_offset = estimate_robot_offset(web_trajectory)
-                
-        
+        draw_line_with_end_points(initial_image, [512, 0, 512, 768], green )
 
 
 
-        #draw_a_lot_of_points(initial_image, right_xs, right_ys, blue)
-        #draw_a_lot_of_points(initial_image, left_xs, left_ys, red)
 
+        for i in range(min(len(left_edges), len(right_edges))):
+            vector = find_vector_intersect(right_edges[i, :, 0:2], right_edges[i, :, 2:4], left_edges[i, :, 0:2], left_edges[i, :, 2:4])
+            draw_line_with_end_points(initial_image, vector, blue)
+            
+            robot_angle = estimate_robot_angle(vector)
+            last_robot_angles.append(robot_angle)
+
+        if len(last_robot_angles) >= 10:
+            last_robot_angles = last_robot_angles[-10:]
+            robot_angle = round(np.mean(last_robot_angles), 2)
+        else:
+            robot_angle = 0.0
+
+
+
+        cv2.putText(initial_image, str(robot_angle), (40, 40), cv2.FONT_HERSHEY_COMPLEX,  
+                       1, blue, 2, cv2.LINE_AA)
         
         cv2.imshow("processed_section", initial_image)
-        cv2.waitKey(10)
-    
-
-        #roi_image = apply_roi(gray_image)
-        #cv2.imshow("roi", roi_image)
-        #edges_image = get_edges(roi_image)
-        #cv2.imshow("edges_image", edges_image)
-        
-
+        cv2.waitKey(0)
+ 
 
         frame_count += 1
 
